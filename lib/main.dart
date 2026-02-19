@@ -1,6 +1,10 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const EmotionApp());
@@ -24,67 +28,144 @@ class EmotionApp extends StatelessWidget {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 情绪数据模型 - 扩展到12种情绪，更丰富的配色
-// ══════════════════════════════════════════════════════════════════════════════
-
 class Emotion {
   final String emoji;
   final String title;
-  final String message;
+  final String defaultMessage;
   final Color bgColor;
 
   const Emotion({
     required this.emoji,
     required this.title,
-    required this.message,
+    required this.defaultMessage,
     required this.bgColor,
   });
 }
 
 final emotions = [
-  // 保持原有的6种情绪
   Emotion(
     emoji: "😊",
     title: "开心",
-    message: "太好了！愿你继续保持这份轻松与快乐～",
+    defaultMessage: "太好了！愿你继续保持这份轻松与快乐～",
     bgColor: Colors.orange.shade100,
   ),
   Emotion(
     emoji: "😢",
     title: "难过",
-    message: "抱抱你，一切都会慢慢好起来的。",
+    defaultMessage: "抱抱你，一切都会慢慢好起来的。",
     bgColor: Colors.blue.shade100,
   ),
   Emotion(
     emoji: "😡",
     title: "生气",
-    message: "别让情绪困住你，你值得被温柔以待。",
+    defaultMessage: "别让情绪困住你，你值得被温柔以待。",
     bgColor: Colors.red.shade100,
   ),
   Emotion(
     emoji: "😴",
     title: "疲惫",
-    message: "休息一下吧，你已经尽力了。",
+    defaultMessage: "休息一下吧，你已经尽力了。",
     bgColor: Colors.purple.shade100,
   ),
   Emotion(
     emoji: "😰",
     title: "焦虑",
-    message: "没关系的，慢慢来，一步步都会好。",
+    defaultMessage: "没关系的，慢慢来，一步步都会好。",
     bgColor: Colors.teal.shade100,
   ),
   Emotion(
     emoji: "🤒",
     title: "不舒服",
-    message: "照顾好自己最重要，好好休息。",
+    defaultMessage: "照顾好自己最重要，好好休息。",
     bgColor: Colors.green.shade100,
   ),
 ];
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 首页 - 保持原有背景图片，使用2列网格布局
-// ══════════════════════════════════════════════════════════════════════════════
+class MessageService {
+  static const String _cacheKey = 'emotion_messages_cache';
+  static const String _lastFetchKey = 'emotion_messages_last_fetch';
+  static const Duration _cacheDuration = Duration(hours: 1);
+
+  static const String _remoteUrl =
+      'https://raw.githubusercontent.com/yourusername/yourrepo/main/emotion_messages.json';
+
+  static final Map<String, List<String>> _cachedMessages = {};
+  static final Random _random = Random();
+
+  static Future<void> initialize() async {
+    await _loadCachedMessages();
+
+    final prefs = await SharedPreferences.getInstance();
+    final lastFetch = prefs.getInt(_lastFetchKey);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    if (lastFetch == null ||
+        now - lastFetch > _cacheDuration.inMilliseconds) {
+      await refreshMessages();
+    }
+  }
+
+  static Future<void> refreshMessages() async {
+    try {
+      final response = await http
+          .get(Uri.parse(_remoteUrl))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        _cachedMessages.clear();
+
+        data.forEach((key, value) {
+          if (value is List) {
+            _cachedMessages[key] = value.cast<String>();
+          }
+        });
+
+        await _saveMessagesToCache(data);
+      }
+    } catch (e) {}
+  }
+
+  static String getRandomMessage(String emotionTitle) {
+    final messages = _cachedMessages[emotionTitle];
+    if (messages != null && messages.isNotEmpty) {
+      return messages[_random.nextInt(messages.length)];
+    }
+
+    final emotion = emotions.firstWhere(
+      (e) => e.title == emotionTitle,
+      orElse: () => emotions.first,
+    );
+    return emotion.defaultMessage;
+  }
+
+  static Future<void> _loadCachedMessages() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString(_cacheKey);
+
+    if (cached != null) {
+      try {
+        final data = jsonDecode(cached) as Map<String, dynamic>;
+        _cachedMessages.clear();
+        data.forEach((key, value) {
+          if (value is List) {
+            _cachedMessages[key] = value.cast<String>();
+          }
+        });
+      } catch (_) {}
+    }
+  }
+
+  static Future<void> _saveMessagesToCache(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cacheKey, jsonEncode(data));
+    await prefs.setInt(
+        _lastFetchKey, DateTime.now().millisecondsSinceEpoch);
+  }
+
+  static Map<String, List<String>> get currentCache =>
+      Map.unmodifiable(_cachedMessages);
+}
 
 class EmotionHomePage extends StatefulWidget {
   const EmotionHomePage({super.key});
@@ -93,19 +174,21 @@ class EmotionHomePage extends StatefulWidget {
   State<EmotionHomePage> createState() => _EmotionHomePageState();
 }
 
-class _EmotionHomePageState extends State<EmotionHomePage> with TickerProviderStateMixin {
+class _EmotionHomePageState extends State<EmotionHomePage>
+    with TickerProviderStateMixin {
   final Map<int, int> _counts = {};
   Timer? _timer;
   final Map<int, AnimationController> _pulseControllers = {};
   final Map<int, Animation<double>> _pulseAnimations = {};
   bool _isInitialized = false;
+  bool _isLoadingMessages = true;
 
   bool get _hasEmotions => _counts.values.any((value) => value > 0);
 
   @override
   void initState() {
     super.initState();
-    // 预创建动画控制器
+
     for (int i = 0; i < emotions.length; i++) {
       _pulseControllers[i] = AnimationController(
         duration: const Duration(milliseconds: 150),
@@ -115,10 +198,22 @@ class _EmotionHomePageState extends State<EmotionHomePage> with TickerProviderSt
         CurvedAnimation(parent: _pulseControllers[i]!, curve: Curves.easeInOut),
       );
     }
-    // 延迟初始化动画
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (mounted) setState(() => _isInitialized = true);
+
+    _initializeMessages();
+  }
+
+  Future<void> _initializeMessages() async {
+    await MessageService.initialize();
+    setState(() {
+      _isLoadingMessages = false;
+      _isInitialized = true;
     });
+  }
+
+  Future<void> _refreshMessages() async {
+    setState(() => _isLoadingMessages = true);
+    await MessageService.refreshMessages();
+    setState(() => _isLoadingMessages = false);
   }
 
   @override
@@ -160,7 +255,6 @@ class _EmotionHomePageState extends State<EmotionHomePage> with TickerProviderSt
       _counts.clear();
     });
 
-    // 显示成功动画
     showDialog(
       context: context,
       barrierColor: Colors.black54,
@@ -186,6 +280,19 @@ class _EmotionHomePageState extends State<EmotionHomePage> with TickerProviderSt
             decoration: TextDecoration.none,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: _isLoadingMessages
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            onPressed: _isLoadingMessages ? null : _refreshMessages,
+            tooltip: '刷新消息',
+          ),
+        ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: _hasEmotions
@@ -293,10 +400,6 @@ class _EmotionHomePageState extends State<EmotionHomePage> with TickerProviderSt
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 情绪卡片 - 简洁风格 + 动画
-// ══════════════════════════════════════════════════════════════════════════════
-
 class _EmotionCard extends StatelessWidget {
   final Emotion emotion;
   final int count;
@@ -338,7 +441,7 @@ class _EmotionCard extends StatelessWidget {
               barrierDismissible: true,
               transitionDuration: const Duration(milliseconds: 400),
               reverseTransitionDuration: const Duration(milliseconds: 300),
-              pageBuilder: (_, __, _) => EmotionDetailPage(emotion: emotion),
+              pageBuilder: (_, __, ___) => EmotionDetailPage(emotion: emotion),
             ),
           );
         },
@@ -398,7 +501,6 @@ class _EmotionCard extends StatelessWidget {
                 ),
               ),
             ),
-            // 计数气泡
             if (count > 0)
               Positioned(
                 right: -10,
@@ -414,7 +516,8 @@ class _EmotionCard extends StatelessWidget {
                     );
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.redAccent,
                       borderRadius: BorderRadius.circular(20),
@@ -446,10 +549,6 @@ class _EmotionCard extends StatelessWidget {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 详情页 - 全屏渐变 + 大字体 + 动画
-// ══════════════════════════════════════════════════════════════════════════════
-
 class EmotionDetailPage extends StatefulWidget {
   final Emotion emotion;
 
@@ -464,10 +563,14 @@ class _EmotionDetailPageState extends State<EmotionDetailPage>
   double _scale = 1.0;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  late String _message;
 
   @override
   void initState() {
     super.initState();
+
+    _message = MessageService.getRandomMessage(widget.emotion.title);
+
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -483,6 +586,12 @@ class _EmotionDetailPageState extends State<EmotionDetailPage>
   void dispose() {
     _animationController.dispose();
     super.dispose();
+  }
+
+  void _refreshMessage() {
+    setState(() {
+      _message = MessageService.getRandomMessage(widget.emotion.title);
+    });
   }
 
   @override
@@ -545,13 +654,11 @@ class _EmotionDetailPageState extends State<EmotionDetailPage>
                           mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            // Emoji 大图标
                             Text(
                               widget.emotion.emoji,
                               style: const TextStyle(fontSize: 80),
                             ),
                             const SizedBox(height: 24),
-                            // 标题
                             Text(
                               widget.emotion.title,
                               style: const TextStyle(
@@ -563,19 +670,34 @@ class _EmotionDetailPageState extends State<EmotionDetailPage>
                               ),
                             ),
                             const SizedBox(height: 24),
-                            // 主要消息
-                            Text(
-                              widget.emotion.message,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                height: 1.6,
-                                color: Colors.black87,
-                                decoration: TextDecoration.none,
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 300),
+                              child: Text(
+                                _message,
+                                key: ValueKey(_message),
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  height: 1.6,
+                                  color: Colors.black87,
+                                  decoration: TextDecoration.none,
+                                ),
+                                textAlign: TextAlign.center,
                               ),
-                              textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 24),
-                            // 提示文字
+                            const SizedBox(height: 32),
+                            TextButton.icon(
+                              onPressed: _refreshMessage,
+                              icon: const Icon(Icons.refresh, size: 18),
+                              label: const Text('换一条'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.black54,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
                             Text(
                               "点击背景关闭",
                               style: TextStyle(
@@ -598,10 +720,6 @@ class _EmotionDetailPageState extends State<EmotionDetailPage>
     );
   }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// 成功动画对话框
-// ══════════════════════════════════════════════════════════════════════════════
 
 class _SuccessAnimation extends StatefulWidget {
   const _SuccessAnimation();
