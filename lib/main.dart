@@ -357,44 +357,40 @@ class _EmotionCard extends StatelessWidget {
                 tag: emotion.title,
                 child: Material(
                   color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: () {},
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: emotion.bgColor,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: emotion.bgColor.withValues(alpha: 0.4),
-                            blurRadius: 8,
-                            offset: const Offset(2, 4),
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.all(16),
-                      child: Center(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                emotion.emoji,
-                                style: const TextStyle(fontSize: 45),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: emotion.bgColor,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: emotion.bgColor.withValues(alpha: 0.4),
+                          blurRadius: 8,
+                          offset: const Offset(2, 4),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              emotion.emoji,
+                              style: const TextStyle(fontSize: 45),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              emotion.title,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                                decoration: TextDecoration.none,
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                emotion.title,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                  decoration: TextDecoration.none,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
